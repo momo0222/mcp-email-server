@@ -1,10 +1,12 @@
 # Python-generated files
-__pycache__/
+__pycache_n_/
 *.py[oc]
-build/
+build/x
 dist/
 wheels/
 *.egg-info
 
 # Virtual environments
 .venv
+credentials.json
+token.json
