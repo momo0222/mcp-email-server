@@ -2,11 +2,26 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from email.message import EmailMessage
 import base64
 import html
 import os
+from openai import OpenAI
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+from typing import Optional
+load_dotenv()
+client = OpenAI()
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    'https://www.googleapis.com/auth/gmail.send',
+    ]
+
+class PotentialReplies(BaseModel):
+    casual: str = Field(description="Short, friendly reply")
+    professional: str = Field(description="Formal, professional reply")
+    detailed: str = Field(description="Thorough, detailed reply")
 
 class GmailClient:
     def __init__(self, credentials_path: str="credentials.json", token_path: str="token.json"):
@@ -39,19 +54,21 @@ class GmailClient:
         self.service = build("gmail", "v1", credentials=creds)
         
 
-    def list_messages(self, max_results: int = 10) -> list:
+    def list_messages(self, max_results: int = 10, query: str = '') -> list:
         """
         Returns a list of recent emails, limited by max_results
         
         :param self: Description
         :param max_results: maximum number of emails returned
+        :param query: Gmail search query (e.g., 'from:someone@gmail.com')
         :type max_results: int
         :return: a list of max_results emails
         :rtype: list
         """
         results = self.service.users().messages().list(
             userId="me",
-            maxResults=max_results
+            maxResults=max_results,
+            q=query
         ).execute()
         return results.get("messages", [])
         
@@ -97,7 +114,71 @@ class GmailClient:
         parsed["body"] = self._get_body(message['payload'])
 
         return parsed
+    
+    def classify_email(self, parsed_email: dict) -> str:
+        """Classify email as urgent, personal, routine, or spam
+
+        :param self: this
+        :param parsed_email: Parsed email dict with subject, from, and snippet
+        :type parsed_email: dict
+        :return: Classification of the email as either 'urgent', 'personal', 'routine', or 'spam'
+        :rtype: str
+        """
+        prompt = f"""Classify this email as one of: urgent, personal, routine, or spam
+
+                Subject: {parsed_email['subject']}
+                From: {parsed_email['from']}
+                Preview: {parsed_email['snippet']}
+
+                Respond with just one word: urgent, personal, routine, or spam"""
+        response = client.responses.create(
+            model="gpt-4o-mini",
+            input=prompt
+        )
+        return response.output_text.strip().lower()
+
+    def generate_reply_suggestions(self, parsed_email: dict) -> list:
+        """
+        Generate 3 reply suggestions using OpenAI
         
+        :param self: Description
+        :param parsed_email: Parsed email dict with subject, from, and snippet
+        :type parsed_email: dict
+        :return: List of 3 reply suggestions: [casual, professional, detailed]
+        :rtype: list
+        """
+        prompt = f"""Generate three responses for this email with the tones: casual, professional, and detailed
+            Subject: {parsed_email['subject']}
+            From: {parsed_email['from']}
+            Body: {parsed_email['body']}
+            
+            Return the response in a list
+        """
+        response = client.responses.parse(
+            model="gpt-4o-mini",
+            input=prompt,
+            text_format=PotentialReplies
+        )
+        if response.output_parsed:
+            return [response.output_parsed.casual, response.output_parsed.professional, response.output_parsed.detailed]
+        return []
+
+    def send_email(self, to: str, subject: str, body: str, thread_id: Optional[str]=None) -> dict:
+        message = EmailMessage()
+        message['To'] = to
+        message['Subject'] = subject
+        message.set_content(body)
+        
+        encoded_msg = base64.urlsafe_b64encode(message.as_bytes()).decode()
+        create_message = {'raw': encoded_msg}
+
+        if thread_id:
+            create_message['threadId'] = thread_id
+        
+        send_message = self.service.users().messages().send(userId='me', body=create_message).execute()
+        
+        return send_message
+    
     def _get_body(self, payload: dict) -> str:
         if 'body' in payload and 'data' in payload['body']:
             return self._decode_body(payload['body']['data'])
@@ -113,6 +194,6 @@ class GmailClient:
         return 'Could not extract body'
 
     def _decode_body(self, body: str) -> str:
-        decoded_bytes = base64.b64decode(body)
+        decoded_bytes = base64.urlsafe_b64decode(body)
         text = decoded_bytes.decode('utf-8')
         return text.replace('\r\n', '\n').replace('\r', '\n')
