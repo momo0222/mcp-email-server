@@ -162,6 +162,25 @@ class GmailClient:
         if response.output_parsed:
             return [response.output_parsed.casual, response.output_parsed.professional, response.output_parsed.detailed]
         return []
+    
+    def generate_smart_reply(self, parsed_email: dict) -> str:
+        """Generate a single, contextually appropriate reply"""
+        print(f"DEBUG: parsed_email keys: {parsed_email.keys()}")
+        prompt = f"""Generate ONLY the body of an email reply. Do NOT include subject line or headers.
+
+        From: {parsed_email['from']}
+        Subject: {parsed_email['subject']}
+        Body: {parsed_email['body']}
+
+        Based on the sender and content, write a reply with the appropriate tone (casual, professional, or detailed).
+        Keep it concise but helpful. Write ONLY the reply body text with appropriate tone. Start directly with the greeting."""
+
+        response = client.responses.create(
+            model="gpt-4o-mini",
+            input=prompt
+        )
+    
+        return response.output_text
 
     def send_email(self, to: str, subject: str, body: str, thread_id: Optional[str]=None) -> dict:
         message = EmailMessage()
