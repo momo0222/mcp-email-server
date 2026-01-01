@@ -11,3 +11,4 @@ wheels/
 credentials.json
 token.json
 .env
+logs/

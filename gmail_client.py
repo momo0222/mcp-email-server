@@ -187,7 +187,10 @@ class GmailClient:
         message['To'] = to
         message['Subject'] = subject
         message.set_content(body)
-        
+        if thread_id:
+            # These headers tell Gmail this is part of a conversation
+            message['In-Reply-To'] = f'<{thread_id}@mail.gmail.com>'
+            message['References'] = f'<{thread_id}@mail.gmail.com>'
         encoded_msg = base64.urlsafe_b64encode(message.as_bytes()).decode()
         create_message = {'raw': encoded_msg}
 

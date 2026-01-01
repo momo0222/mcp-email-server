@@ -6,7 +6,7 @@ messages = client.list_messages()
 
 # for message in messages:
 #     print(f"id:{message['id']} thread_id:{message['threadId']}")
-first = messages[1]
+first = messages[0]
 msg_id = first['id']
 full_msg = client.get_message(msg_id)
 parsed = client.parse_message(full_msg)
